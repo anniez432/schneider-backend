@@ -650,6 +650,7 @@ class LoadRecommendationEngine:
         print(f"Route History: {route_text[:100]}..." if len(route_text) > 100 else f"Route History: {route_text}")
         print(f"Anywhere Ratio: {anywhere_ratio:.2%}")
 
+        # can play around with these!
         # weights:
 
         if current_location is not None:
