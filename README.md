@@ -16,7 +16,11 @@ This engine recommends loads to users based on route similarity (using TF-IDF & 
 
 
 ## Requirements
+```
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt 
+```
 
 or use Docker
 

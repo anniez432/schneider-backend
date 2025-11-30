@@ -778,7 +778,7 @@ class LoadRecommendationEngine:
         return np.array(distance_similarities)
     
     # returns the recommended loads for the user, if they have a natnal or not
-    def get_recommendations(self, user_id, current_location = None):
+    def get_recommendations(self, user_id, current_location = None, limit=5, page=1):
         if user_id not in self.user_index:
             return []
         
@@ -791,9 +791,24 @@ class LoadRecommendationEngine:
             scores = result
             #current_loc_sims = None
 
-        top_indices = np.argsort(scores)[-self.top_k:][::-1]
+        # Calculate start and end indices for pagination
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
 
-        all_top_indices = np.argsort(scores)[-10:][::-1]
+        # Get indices sorted by score descending
+        sorted_indices = np.argsort(scores)[::-1]
+        
+        # Slice for the requested page
+        top_indices = sorted_indices[start_idx:end_idx]
+
+        # For logging/debugging purposes, we might still want to see the top 10 overall
+        # or maybe just the ones we are returning. Let's keep the logging for the top 10 overall
+        # as it was before, or maybe adjust it? The original code printed top 10.
+        # Let's keep printing top 10 overall for context if page=1, otherwise it might be confusing.
+        # Actually, let's just leave the logging as is (top 10 overall) to avoid disrupting that flow,
+        # but we will only return the paginated results.
+        
+        all_top_indices = sorted_indices[:10]
 
         route_similarities = self._compute_route_similarity(user_idx)
         geo_similarities = self._compute_geographic_similarity(user_idx)
@@ -804,10 +819,9 @@ class LoadRecommendationEngine:
         load_quality = loads_personalized["personalized_load_quality"].values
 
         print(f"\n{'='*80}")
-        print(f"TOP 10 LOADS RANKED")
+        print(f"TOP 10 LOADS RANKED (Overall)")
         print(f"{'='*80}\n")
         
-        all_top_indices = np.argsort(scores)[-10:][::-1]
         print(f"{'Rank':<5} {'Load':<6} {'Score':<10} {'Route':<10} {'CurrentLoc':<12} {'Geo':<10} {'Quality':<10} {'Route Match':<20}")
         print(f"{'-'*90}")
 
@@ -835,11 +849,15 @@ class LoadRecommendationEngine:
             print()
 
         recommendations = []
-        for rank, load_idx in enumerate(top_indices, 1):
+        # Rank in the return object should probably reflect the overall rank, 
+        # so start rank is start_idx + 1
+        current_rank = start_idx + 1
+        
+        for load_idx in top_indices:
             load = self.loads_df.iloc[load_idx]
             score = scores[load_idx]
             recommendations.append({
-                'rank': rank,
+                'rank': current_rank,
                 'load_id': str(load['id']),
                 'recommendation_score': float(score),
                 'load_quality': float(load['load_quality']),
@@ -860,6 +878,7 @@ class LoadRecommendationEngine:
                     'time': load['delivery']['time']
                 }
             })
+            current_rank += 1
 
         return recommendations
     

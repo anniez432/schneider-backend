@@ -32,17 +32,26 @@ def health_check():
     return {"status": "healthy", "engine_initialized": engine is not None}
 
 @app.get("/recommend/{user_id}")
-def recommend(user_id: int, current_lat: float = None, current_lon: float = None):
+def recommend(
+    user_id: int, 
+    current_lat: float = None, 
+    current_lon: float = None, 
+    limit: int = 5,
+    page: int = 1
+):
     """Get load recommendations for a user
     
     Args:
         user_id: User ID
         current_lat: User's current latitude (optional)
         current_lon: User's current longitude (optional)
+        limit: Number of recommendations to return (default: 5)
+        page: Page number (default: 1)
     
     Example:
         /recommend/1 (no current location)
         /recommend/1?current_lat=39.0997&current_lon=-94.5786 (Kansas City)
+        /recommend/1?limit=10&page=2
     """
     if engine is None:
         raise HTTPException(status_code=503, detail="Recommendation engine not initialized")
@@ -51,11 +60,11 @@ def recommend(user_id: int, current_lat: float = None, current_lon: float = None
         current_location = None
         if current_lat is not None and current_lon is not None:
             current_location = (current_lat, current_lon)
-            logger.info(f"Recommendation for user {user_id} from location ({current_lat}, {current_lon})")
+            logger.info(f"Recommendation for user {user_id} from location ({current_lat}, {current_lon}) - Page {page}, Limit {limit}")
         else:
-            logger.info(f"Recommendation for user {user_id} (no current location)")
+            logger.info(f"Recommendation for user {user_id} (no current location) - Page {page}, Limit {limit}")
         
-        recommendations = engine.get_recommendations(user_id, current_location)
+        recommendations = engine.get_recommendations(user_id, current_location, limit=limit, page=page)
         
         if not recommendations:
             return {
