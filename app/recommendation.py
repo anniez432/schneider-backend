@@ -7,6 +7,7 @@ import re
 from math import radians, sin, cos, sqrt, atan2
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from datetime import datetime, timedelta
 
 # generate the mock loads data
 def generate_mock_loads(num_loads = 700, save_path = "mock_loads.json"):
@@ -122,6 +123,10 @@ def generate_mock_loads(num_loads = 700, save_path = "mock_loads.json"):
 
     mock_loads = []
 
+    # adding the time feature of NATNAL - get current date & time
+    now = datetime.now()
+
+
     for i in range(num_loads):
         pickup_state = np.random.choice(states, p=weights, size = 1)[0]
         delivery_state = np.random.choice(states, p=weights, size = 1)[0]
@@ -133,8 +138,51 @@ def generate_mock_loads(num_loads = 700, save_path = "mock_loads.json"):
         while delivery_city == pickup_city and pickup_state == delivery_state:
             delivery_city = random.choice(trucking_hubs[delivery_state]["cities"])
 
-        pickup_time = f'{random.randint(1, 12)}:{random.randint(0,59):02d} {"AM" if random.randint(0,1)==0 else "PM"}'
-        delivery_time = f'{random.randint(1, 12)}:{random.randint(0,59):02d} {"AM" if random.randint(0,1)==0 else "PM"}'
+        # generate the pickup/delivery datetimes
+        # want from today - 2 weeks from now
+        pickup_days_offset = random.randint(0, 14)
+        pickup_hour = random.randint(1, 12)
+        pickup_minute = random.randint(0, 59)
+        am_pm = "AM" if random.randint(0, 1) == 0 else "PM"
+        
+        # need to compare datetimes so change to 24hr
+        hour_24_format = pickup_hour % 12
+        if am_pm == "PM" and pickup_hour != 12:
+            hour_24_format += 12
+        elif am_pm == "AM" and pickup_hour == 12:
+            hour_24_format = 0
+
+        pickup_datetime = now + timedelta(days = pickup_days_offset)
+        pickup_datetime = pickup_datetime.replace(hour = hour_24_format, minute = pickup_minute, second=0, microsecond=0)
+
+        # want the pickup to be at least 2 hours in the future - if not move to tomorrow
+        if pickup_datetime < now + timedelta(hours=2):
+            pickup_datetime = now.replace(hour = hour_24_format, minute=pickup_minute, second = 0, microsecond=0) + timedelta(days = 1)
+
+        pickup_date_str = pickup_datetime.strftime("%b %d")
+        pickup_time = f'{pickup_hour}:{pickup_minute:02d} {am_pm}'
+        
+        delivery_days_offset = random.randint(1, 14)
+        delivery_hour = random.randint(1, 12)
+        delivery_minute = random.randint(0, 59)
+        delivery_am_pm = "AM" if random.randint(0, 1) == 0 else "PM"
+
+        delivery_hour_24_format = delivery_hour % 12
+        if delivery_am_pm == "PM" and delivery_hour != 12:
+            delivery_hour_24_format += 12
+        elif delivery_am_pm == "AM" and delivery_hour == 12:
+            delivery_hour_24_format = 0
+
+        # make sure delivery is after pickup, at least 6 hours after
+        delivery_datetime = pickup_datetime + timedelta(days = delivery_days_offset)
+        delivery_datetime = delivery_datetime.replace(hour = delivery_hour_24_format, minute = delivery_minute, second=0, microsecond=0)
+
+        if delivery_datetime < pickup_datetime + timedelta(hours=6):
+            delivery_datetime = pickup_datetime + timedelta(hours = 6)
+            delivery_datetime = delivery_datetime.replace(hour = delivery_hour_24_format, minute=delivery_minute, second=0, microsecond=0)
+
+        delivery_date_str = delivery_datetime.strftime("%b %d")
+        delivery_time = f'{delivery_hour}:{delivery_minute:02d} {delivery_am_pm}'
 
         load = {
             'id': str(i + 1),
@@ -146,7 +194,7 @@ def generate_mock_loads(num_loads = 700, save_path = "mock_loads.json"):
             'pickup': {
                 'city': pickup_city,
                 'state': pickup_state,
-                'date': f'Nov {random.randint(1, 20)}',
+                'date': pickup_date_str,
                 'time': pickup_time,
                 'emptyMiles': random.randint(0, 300),
                 'address': f'{random.randint(1,1000)} Main St',
@@ -155,7 +203,7 @@ def generate_mock_loads(num_loads = 700, save_path = "mock_loads.json"):
             'delivery': {
                 'city': delivery_city,
                 'state': delivery_state,
-                'date': f'Nov {random.randint(21, 30)}',
+                'date': delivery_date_str,
                 'time': delivery_time,
                 'emptyMiles': random.randint(0, 150),
                 'address': f'{random.randint(1,1000)} Warehouse Blvd',
