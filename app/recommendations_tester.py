@@ -9,6 +9,43 @@ class RecommendationTester:
             self.loads_df = loads_df
             self.engine = engine
             self.results = []
+        
+        def print_summary(self) -> None:
+            """Print overall accuracy summary across all tested users"""
+            if not self.results:
+                print("No results to summarize")
+                return
+            
+            total_accuracy = 0
+            total_tests = 0
+            total_matches = 0
+            total_no_matches = 0
+            
+            for result in self.results:
+                match = result['match_analysis']
+                total_accuracy += match['accuracy_score']
+                total_tests += 1
+                
+                if result['distance_filter']:
+                    total_matches += match['distance_within_range']
+                elif result['current_location']:
+                    total_matches += match['location_matches']
+                else:
+                    total_matches += match['history_matches']
+                
+                total_no_matches += match['no_matches']
+            
+            avg_accuracy = total_accuracy / total_tests if total_tests > 0 else 0
+            total_recommendations = total_matches + total_no_matches
+            
+            print(f"\n{'='*80}")
+            print(f"OVERALL RECOMMENDATION ENGINE SUMMARY")
+            print(f"{'='*80}")
+            print(f"\n  Tests Run: {total_tests}")
+            print(f"  Average Accuracy: {avg_accuracy:.2%}")
+            print(f"  Total Matches: {total_matches}/{total_recommendations}")
+            print(f"  Total No Matches: {total_no_matches}/{total_recommendations}")
+            print(f"\n{'='*80}\n")
 
         def get_user_history_stats(self, user_id: int) -> Dict:
 
@@ -41,7 +78,7 @@ class RecommendationTester:
             return pickup_location, delivery_location
 
         # calculate how accurate the match is 
-        def calculate_match_score(self, recommendations: List[Dict], user_history: Dict) -> Dict:
+        def calculate_match_score(self, recommendations: List[Dict], user_history: Dict, current_location: Tuple = None, distance_range: int = None) -> Dict:
             if not recommendations or not user_history:
                 return None
 
@@ -55,40 +92,71 @@ class RecommendationTester:
                     top_states.add(loc.split(',')[1].strip())
 
             matches = {
-                'exact_location_matches': 0,
-                'state_matches': 0,
+                'location_matches': 0,
+                'distance_within_range': 0,
+                'history_matches': 0,
                 'no_matches': 0,
                 'matched_load_ids': [],
                 'unmatched_load_ids': []
             }
+
+            from recommendation import haversine
 
             # go through those top 5 recommendations
             for rec in recommendations:
                 load = self.loads_df[self.loads_df['id'] == int(rec['load_id'])].iloc[0]
                 pickup_loc, delivery_loc = self.get_location_from_load(load)
 
-                # check for exact location match (pickup or delivery)
-                if pickup_loc in top_locations or delivery_loc in top_locations:
-                    matches['exact_location_matches'] += 1
-                    matches['matched_load_ids'].append(rec['load_id'])
-                # check for state match
-                else:
-                    pickup_state = pickup_loc.split(',')[1].strip() if ',' in pickup_loc else None
-                    delivery_state = delivery_loc.split(',')[1].strip() if ',' in delivery_loc else None
+                # If current_location is specified, check if pickup is in that location
+                if current_location is not None:
+                    pickup_coord = load['pickup_coord']
+                    distance = haversine(current_location, pickup_coord)
                     
-                    if (pickup_state in top_states or delivery_state in top_states):
-                        matches['state_matches'] += 1
-                        matches['matched_load_ids'].append(rec['load_id'])
+                    # Check if within distance range if specified
+                    if distance_range is not None:
+                        if distance <= distance_range:
+                            matches['distance_within_range'] += 1
+                            matches['matched_load_ids'].append(rec['load_id'])
+                        else:
+                            matches['no_matches'] += 1
+                            matches['unmatched_load_ids'].append(rec['load_id'])
                     else:
-                        matches['no_matches'] += 1
-                        matches['unmatched_load_ids'].append(rec['load_id'])
+                        # No range specified, just check location match
+                        matches['location_matches'] += 1
+                        matches['matched_load_ids'].append(rec['load_id'])
+                
+                # If no current_location, check against user history
+                else:
+                    # check for exact location match (pickup or delivery)
+                    if pickup_loc in top_locations or delivery_loc in top_locations:
+                        matches['history_matches'] += 1
+                        matches['matched_load_ids'].append(rec['load_id'])
+                    # check for state match
+                    else:
+                        pickup_state = pickup_loc.split(',')[1].strip() if ',' in pickup_loc else None
+                        delivery_state = delivery_loc.split(',')[1].strip() if ',' in delivery_loc else None
+                        
+                        if (pickup_state in top_states or delivery_state in top_states):
+                            matches['history_matches'] += 1
+                            matches['matched_load_ids'].append(rec['load_id'])
+                        else:
+                            matches['no_matches'] += 1
+                            matches['unmatched_load_ids'].append(rec['load_id'])
 
             total = len(recommendations)
-            accuracy = (matches['exact_location_matches'] + matches['state_matches']) / total if total > 0 else 0
+            
+            if current_location is not None:
+                if distance_range is not None:
+                    accuracy = matches['distance_within_range'] / total if total > 0 else 0
+                else:
+                    accuracy = matches['location_matches'] / total if total > 0 else 0
+            else:
+                accuracy = matches['history_matches'] / total if total > 0 else 0
 
             return {
-                'exact_matches': matches['exact_location_matches'],
-                'state_matches': matches['state_matches'],
+                'location_matches': matches['location_matches'],
+                'distance_within_range': matches['distance_within_range'],
+                'history_matches': matches['history_matches'],
                 'no_matches': matches['no_matches'],
                 'accuracy_score': accuracy,
                 'matched_load_ids': matches['matched_load_ids'],
@@ -97,7 +165,7 @@ class RecommendationTester:
             }
         
         # run the test for a user
-        def test_user(self, user_id: int, current_location: Tuple = None, desired_date: str = None, desired_time: str = None) -> Dict:
+        def test_user(self, user_id: int, current_location: Tuple = None, distance_range: int = None, desired_date: str = None, desired_time: str = None) -> Dict:
             user_history = self.get_user_history_stats(user_id)
             if not user_history:
                 print("User not found")
@@ -107,14 +175,17 @@ class RecommendationTester:
                 recommendations = self.engine.get_recommendations(
                     user_id, 
                     current_location=current_location,
+                    distance_range=distance_range,
                     desired_date=desired_date,
                     desired_time=desired_time
                 )
             except Exception as e:
-                print("Error getting recommendations")
+                print(f"Error getting recommendations: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 return None
             
-            match_score = self.calculate_match_score(recommendations, user_history)
+            match_score = self.calculate_match_score(recommendations, user_history, current_location, distance_range)
 
             result = {
             'user_id': user_id,
@@ -122,6 +193,9 @@ class RecommendationTester:
             'recommendations': recommendations,
             'match_analysis': match_score,
             'current_location': current_location,
+            'distance_filter': {
+                'distance_range': distance_range
+            } if distance_range is not None and current_location else None,
             'datetime_filter': {
                 'desired_date': desired_date,
                 'desired_time': desired_time
@@ -139,6 +213,8 @@ class RecommendationTester:
             history = result['user_history']
             match = result['match_analysis']
             recs = result['recommendations']
+            current_location = result['current_location']
+            distance_filter = result['distance_filter']
             datetime_filter = result['datetime_filter']
 
             print(f"\n{'='*80}")
@@ -163,6 +239,10 @@ class RecommendationTester:
             for i, (dest, count) in enumerate(list(history['event_destination_counts'].items())[:5], 1):
                 print(f"    {i}. {dest}: {count} searches")
 
+            if distance_filter:
+                print(f"\nDISTANCE FILTER:")
+                print(f"  Distance Range: 0 - {distance_filter['distance_range']} miles")
+
             if datetime_filter:
                 print(f"\nDATETIME FILTER:")
                 print(f"  Desired Date: {datetime_filter['desired_date']}")
@@ -173,8 +253,16 @@ class RecommendationTester:
             print(f"{'='*80}\n")
             
             print(f"  Accuracy Score: {match['accuracy_score']:.2%}")
-            print(f"  Exact Location Matches: {match['exact_matches']}/5")
-            print(f"  State Matches: {match['state_matches']}/5")
+            
+            if current_location is not None:
+                if distance_filter is not None:
+                    print(f"  Pickups Within Range: {match['distance_within_range']}/5")
+                else:
+                    print(f"  Location Matches: {match['location_matches']}/5")
+            else:
+                print(f"  Exact Location Matches: {match['history_matches']}/5")
+                print(f"  State Matches: 0/5 (counted in accuracy)")
+            
             print(f"  No Matches: {match['no_matches']}/5")
             
             print(f"\n  User's Top Locations (from history):")
@@ -225,9 +313,17 @@ if __name__ == "__main__":
     # test the top 10 most appeared users 
     top_10_users = df_original['USER_PSEUDO_ID'].value_counts().head(10).index.tolist()
 
-    # Example 1: Test without datetime filter
+    # Define different test locations for variety
+    test_locations = [
+        {"name": "Denver, CO", "coords": (39.7392, -104.9903)},
+        {"name": "New York, NY", "coords": (40.7128, -74.0060)},
+        {"name": "Houston, TX", "coords": (29.7604, -95.3698)},
+        {"name": "Chicago, IL", "coords": (41.8781, -87.6298)},
+    ]
+
+    # Example 1: Test without filters
     print("\n" + "="*80)
-    print("TESTING WITHOUT DATETIME FILTER")
+    print("TESTING WITHOUT FILTERS")
     print("="*80)
     for i, user_id in enumerate(top_10_users[:3], 1):
         result = tester.test_user(user_id=user_id)
@@ -256,3 +352,51 @@ if __name__ == "__main__":
             tester.print_report(result)
         else:
             print("Failed to test")
+
+    # Example 3: Test with distance filter
+    print("\n" + "="*80)
+    print("TESTING WITH DISTANCE FILTER")
+    print("="*80)
+    
+    for loc_idx, location in enumerate(test_locations[:3], 1):
+        print(f"\nLocation {loc_idx}: {location['name']}")
+        print(f"Distance Range: 0 - 300 miles\n")
+        
+        user_id = top_10_users[loc_idx - 1]
+        result = tester.test_user(
+            user_id=user_id,
+            current_location=location['coords'],
+            distance_range=300
+        )
+        if result:
+            tester.print_report(result)
+        else:
+            print("Failed to test")
+
+    # Example 4: Test with both filters
+    print("\n" + "="*80)
+    print("TESTING WITH DISTANCE AND DATETIME FILTERS")
+    print("="*80)
+    future_date = (datetime.now() + timedelta(days=3)).strftime("%b %d %Y")
+    future_time = "2:00 PM"
+    
+    for loc_idx, location in enumerate(test_locations[:3], 1):
+        print(f"\nLocation {loc_idx}: {location['name']}")
+        print(f"Distance Range: 0 - 250 miles")
+        print(f"Filtering for pickups at or after: {future_date} {future_time}\n")
+        
+        user_id = top_10_users[loc_idx + 2] if loc_idx + 2 < len(top_10_users) else top_10_users[loc_idx - 1]
+        result = tester.test_user(
+            user_id=user_id,
+            current_location=location['coords'],
+            distance_range=250,
+            desired_date=future_date,
+            desired_time=future_time
+        )
+        if result:
+            tester.print_report(result)
+        else:
+            print("Failed to test")
+    
+    # Print overall summary
+    tester.print_summary()

@@ -827,7 +827,8 @@ class LoadRecommendationEngine:
     
     # returns the recommended loads for the user, if they have a natnal or not
     # considers NATNAL time - date can be in "Month Date Year" or "Month/Date/Year" format
-    def get_recommendations(self, user_id, current_location = None, limit=5, page=1, desired_date = None, desired_time = None):
+    # can also take in the max distance users will accept loads from for pickup location
+    def get_recommendations(self, user_id, current_location = None, distance_range = None, limit=5, page=1, desired_date = None, desired_time = None):
         if user_id not in self.user_index:
             return []
         
@@ -839,6 +840,20 @@ class LoadRecommendationEngine:
             result = self.get_hybrid_scores(user_idx, current_location)
             scores = result
             #current_loc_sims = None
+
+        # apply range filter 
+        if current_location is not None and distance_range is not None:
+            distance_mask = np.ones(len(self.loads_df), dtype=bool)
+
+            for idx, load in self.loads_df.iterrows():
+                pickup_coordinates = load["pickup_coord"]
+                distance = haversine(current_location, pickup_coordinates)
+
+                if distance > distance_range:
+                    distance_mask[idx] = False
+                
+            # zero out invalid loads
+            scores = scores * distance_mask
 
         # filter out loads that start before desired datetime
         if desired_date is not None and desired_time is not None:
@@ -877,7 +892,7 @@ class LoadRecommendationEngine:
                 except ValueError:
                     valid_mask[idx] = False
                     continue
-                
+
                 # mark as invalid if pickup before dsirede
                 if load_pickup_datetime < desired_datetime:
                     valid_mask[idx] = False
