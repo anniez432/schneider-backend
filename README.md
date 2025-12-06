@@ -65,6 +65,34 @@ which by default means it is available at http://localhost:8000 . Then you can a
 
 Can also run with provided Dockerfile
 
+## Load Schema
+The API returns a JSON object containing a list of `recommendations`. Each recommendation object has the following schema:
+
+```json
+{
+  "rank": "int - rank of recommendation (1 being highest)",
+  "load_id": "string - unique identifier for the load",
+  "recommendation_score": "float - compatibility score (0-1)",
+  "load_quality": "float - quality score of the load",
+  "revenue_per_mile": "float - revenue per mile in $",
+  "price": "float - total price of load in $",
+  "distance": "float - total distance in miles",
+  "weight": "float - weight in lbs",
+  "pickup": {
+    "city": "string",
+    "state": "string (2 letter code)",
+    "date": "string (e.g. 'Dec 15 2025')",
+    "time": "string (e.g. '10:00 AM')"
+  },
+  "delivery": {
+    "city": "string",
+    "state": "string (2 letter code)",
+    "date": "string",
+    "time": "string"
+  }
+}
+```
+
 ## Testing
 python3 recommendations_tester.py will execute the tester file that tests users with various filter combinations: tests without filters (recommendations purely based on user history), tests with datetime filters, tests with distance range filters, and tests with both distance and datetime filters.
 
