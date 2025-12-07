@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from recommendation import initialize_engine
 import logging
 
@@ -6,6 +7,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Load Recommendation API", version="1.0.0")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize the recommendation engine on startup
 engine = None
@@ -16,7 +26,7 @@ async def startup_event():
     try:
         logger.info("Initializing recommendation engine...")
         engine = initialize_engine(
-            data_path="click-stream(in).csv",
+            data_path="click-stream.csv",
             loads_path="mock_loads.json"
         )
         if engine is None:
